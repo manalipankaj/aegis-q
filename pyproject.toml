@@ -1,0 +1,21 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "aegis-q"
+version = "0.1.0"
+description = "High-performance quantum compiler middleware for Dynamical Decoupling."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+dependencies = [
+    "qiskit>=1.0.0",
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "aegis_q"
