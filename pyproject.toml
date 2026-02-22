@@ -18,4 +18,4 @@ dependencies = [
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-module-name = "aegis_q"
+module-name = "aegis_q._aegis_q"

@@ -71,7 +71,7 @@ impl PyQuantumDAG {
 
 /// The AegisQ high-performance quantum compiler module.
 #[pymodule]
-fn aegis_q(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _aegis_q(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Register the custom exception
     m.add("AegisQError", _py.get_type::<AegisQError>())?;
 
