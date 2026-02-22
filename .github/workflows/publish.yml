@@ -10,6 +10,10 @@ permissions:
   id-token: write # CRITICAL: Required for secure PyPI Trusted Publishing
 
 jobs:
+  publish:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: [linux, windows, macos, sdist]
   linux:
     runs-on: ubuntu-latest
     strategy:
