@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 /// Represents the type of operation in a quantum DAG.
 #[derive(Debug, Clone)]
@@ -35,6 +36,7 @@ pub struct QuantumDAG {
     pub qubit_frontier: HashMap<usize, usize>,
     /// Stores the computed schedule: node_id -> NodeSchedule
     pub node_schedules: HashMap<usize, NodeSchedule>,
+    coupling_map: HashSet<(usize, usize)>, // <--- FIX: Use the type HashSet<(usize, usize)>
 }
 
 impl QuantumDAG {
@@ -46,12 +48,49 @@ impl QuantumDAG {
             node_counter: 0,
             qubit_frontier: HashMap::new(),
             node_schedules: HashMap::new(),
+            coupling_map: HashSet::new(),
         }
     }
 
     /// Returns the number of nodes in the DAG.
     pub fn node_count(&self) -> usize {
         self.nodes.len()
+    }
+
+    /// microwave pulse without causing ZZ-crosstalk with any physical neighbors.
+    fn find_safe_pulse_time(
+        &self,
+        qubit: usize,
+        start_time: f64,
+        pulse_dur: f64,
+        active_pulses: &HashMap<usize, Vec<(f64, f64)>>,
+        safety_buffer: f64,
+        total_qubits: usize,
+    ) -> f64 {
+        let mut current_time = start_time;
+        let mut safe_to_fire = false;
+        
+        while !safe_to_fire {
+            safe_to_fire = true;
+            let pulse_end = current_time + pulse_dur;
+            
+            for neighbor in 0..total_qubits {
+                if self.are_neighbors(qubit, neighbor) {
+                    if let Some(neighbor_schedule) = active_pulses.get(&neighbor) {
+                        for &(n_start, n_end) in neighbor_schedule {
+                            // Crosstalk collision detected! Shift our pulse to fire after the neighbor.
+                            if current_time < n_end && pulse_end > n_start {
+                                current_time = n_end + safety_buffer;
+                                safe_to_fire = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if !safe_to_fire { break; }
+            }
+        }
+        current_time
     }
 
     /// Adds a gate to the DAG and updates edges using the qubit frontier.
@@ -169,9 +208,16 @@ impl QuantumDAG {
     }
 
     /// Dynamically inserts Dynamical Decoupling (DD) sequences on idle qubits.
-    pub fn apply_dd_pass(&self, sequence: &str, pulse_durations: &HashMap<usize, f64>) -> Self {
+    pub fn apply_dd_pass(
+        &self, 
+        sequence: &str, 
+        pulse_durations: HashMap<usize, f64>, 
+        num_qubits: usize
+    ) -> Self {
         let mut optimized_dag = QuantumDAG::new();
         let mut last_qubit_time: HashMap<usize, f64> = HashMap::new();
+        // Maps a qubit to a list of occupied time intervals: (start_time, end_time)
+        let mut active_pulses: HashMap<usize, Vec<(f64, f64)>> = HashMap::new();
 
         for node_id in 0..self.node_counter {
             if let Some(node) = self.nodes.get(&node_id) {
@@ -188,8 +234,40 @@ impl QuantumDAG {
                         let threshold = num_pulses * pulse_dur * 1.5;
 
                         if gap >= threshold {
-                            for gate_name in gate_sequence {
-                                optimized_dag.add_gate(gate_name.to_string(), vec![qubit], pulse_dur);
+                            // 1. Explicitly map the scope variables to your DAG's actual internal state trackers
+                            let gap_start_time = *last_qubit_time.get(&qubit).unwrap_or(&0.0); // Replace with your array/variable tracking the qubit's last operation
+                            // A node starts when ALL of its dependent qubits are free.
+                            let mut gap_end_time = 0.0_f64;
+
+                            let mut current_time = gap_start_time;
+                            let safety_buffer = 10.0;
+
+                            for q in &node.qubits {
+                                let q_time = *last_qubit_time.get(q).unwrap_or(&0.0);
+                                if q_time > gap_end_time {
+                                    gap_end_time = q_time;
+                                }
+                            }
+
+                            for pulse_gate in gate_sequence { 
+                                current_time = self.find_safe_pulse_time(
+                                    qubit, 
+                                    current_time, 
+                                    pulse_dur, 
+                                    &active_pulses, 
+                                    safety_buffer, 
+                                    num_qubits
+                                );
+
+                                if current_time + pulse_dur > gap_end_time {
+                                    break; 
+                                }
+
+                                optimized_dag.add_gate(pulse_gate.to_string(), vec![qubit], pulse_dur);
+                                
+                                active_pulses.entry(qubit).or_insert_with(Vec::new).push((current_time, current_time + pulse_dur));
+                                
+                                current_time += pulse_dur + safety_buffer; 
                             }
                         }
                         last_qubit_time.insert(qubit, schedule.start_time);
@@ -219,5 +297,18 @@ impl QuantumDAG {
             }
         }
         result
+    }
+
+    /// Receives the physical hardware topology from Python
+    pub fn set_coupling_map(&mut self, edges: Vec<(usize, usize)>) {
+        for (u, v) in edges {
+            self.coupling_map.insert((u, v));
+            self.coupling_map.insert((v, u)); // Enforce bidirectionality for fast lookups
+        }
+    }
+
+    /// O(1) check if two physical qubits are connected on the chip
+    pub fn are_neighbors(&self, q1: usize, q2: usize) -> bool {
+        self.coupling_map.contains(&(q1, q2))
     }
 }

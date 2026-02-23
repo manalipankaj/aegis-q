@@ -7,26 +7,33 @@ from ._aegis_q import QuantumDAG, AegisQError
 
 def qiskit_to_aegis(qc: QuantumCircuit, backend: Optional[Backend] = None) -> QuantumDAG:
     dag = QuantumDAG()
+    
+    # 1. NEW: Extract and inject the physical hardware topology
+    if backend and getattr(backend, "coupling_map", None):
+        # Extract physical edges (e.g., [(0, 1), (1, 2), (1, 3)])
+        edges = list(backend.coupling_map.get_edges())
+        dag.set_coupling_map(edges)
+        
+    # 2. Existing instruction parsing...
     for instruction in qc.data:
         gate_name = instruction.operation.name
         qubits = tuple(qc.find_bit(q).index for q in instruction.qubits)
         
-        duration = 50.0 # Default fallback in nanoseconds
+        duration = 50.0 
         
-        # Hardware-Aware Duration Extraction
         if backend:
             try:
                 duration_sec = backend.target[gate_name][qubits].duration
                 if duration_sec is not None:
-                    duration = duration_sec * 1e9  # Convert to ns
+                    duration = duration_sec * 1e9  
             except (KeyError, AttributeError):
-                pass # Fallback to default if gate isn't calibrated
+                pass 
                 
         if gate_name == "delay":
-             # Handle explicit Qiskit delays
             duration = instruction.operation.duration if instruction.operation.duration else 50.0
             
         dag.add_gate(gate_name, list(qubits), float(duration))
+        
     return dag
 
 def aegis_to_qiskit(dag: QuantumDAG, num_qubits: int) -> QuantumCircuit:
@@ -61,7 +68,11 @@ def optimize_circuit(qc: QuantumCircuit, backend: Optional[Backend] = None, sequ
             except (KeyError, AttributeError):
                 pulse_durations[q] = 50.0  # Fallback
 
-    optimized_dag = dag.apply_dd_pass(sequence=sequence, pulse_durations=pulse_durations)
+    optimized_dag = dag.apply_dd_pass(
+        sequence=sequence, 
+        pulse_durations=pulse_durations,
+        num_qubits=qc.num_qubits
+    )
     return aegis_to_qiskit(optimized_dag, qc.num_qubits)
 
 # Define what gets exported when someone runs `from aegis_q import *`

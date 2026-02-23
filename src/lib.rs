@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use pyo3::create_exception;
 use pyo3::prelude::*;
 
@@ -26,6 +27,10 @@ impl PyQuantumDAG {
         PyQuantumDAG {
             inner: graph::QuantumDAG::new(),
         }
+    }
+
+    pub fn set_coupling_map(&mut self, edges: Vec<(usize, usize)>) {
+        self.inner.set_coupling_map(edges);
     }
 
     /// Returns the total number of nodes in the DAG.
@@ -57,12 +62,14 @@ impl PyQuantumDAG {
     }
 
     /// Dynamically inserts Dynamical Decoupling (DD) sequences on idle qubits.
-    #[pyo3(signature = (sequence="XY", pulse_durations=None))]
-    pub fn apply_dd_pass(&self, sequence: &str, pulse_durations: Option<std::collections::HashMap<usize, f64>>) -> Self {
-        let default_durations = std::collections::HashMap::new();
-        let durations = pulse_durations.as_ref().unwrap_or(&default_durations);
-        PyQuantumDAG {
-            inner: self.inner.apply_dd_pass(sequence, durations),
+    #[pyo3(signature = (sequence="XY", pulse_durations=None, num_qubits=0))]
+    pub fn apply_dd_pass(&self, sequence: &str, pulse_durations: Option<HashMap<usize, f64>>, num_qubits: usize) -> Self {
+        // Safely unwrap the Option from Python. If None, create an empty HashMap.
+        let durations = pulse_durations.unwrap_or_default();
+        
+        Self {
+            // Now pass the guaranteed HashMap and the num_qubits to the inner core
+            inner: self.inner.apply_dd_pass(sequence, durations, num_qubits),
         }
     }
 
