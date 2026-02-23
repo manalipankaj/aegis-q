@@ -41,5 +41,6 @@ print(optimized_qc.draw())
 ## 📦 Installation
 AegisQ provides pre-compiled binaries for Linux, macOS, and Windows.
 
-* **bash
+**bash**
+
 pip install aegis-q
