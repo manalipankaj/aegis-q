@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+pub type IRInstruction = (String, Vec<usize>, f64);
+
 /// Represents the type of operation in a quantum DAG.
 #[derive(Debug, Clone)]
 pub enum OpType {
@@ -69,11 +71,11 @@ impl QuantumDAG {
     ) -> f64 {
         let mut current_time = start_time;
         let mut safe_to_fire = false;
-        
+
         while !safe_to_fire {
             safe_to_fire = true;
             let pulse_end = current_time + pulse_dur;
-            
+
             for neighbor in 0..total_qubits {
                 if self.are_neighbors(qubit, neighbor) {
                     if let Some(neighbor_schedule) = active_pulses.get(&neighbor) {
@@ -87,7 +89,9 @@ impl QuantumDAG {
                         }
                     }
                 }
-                if !safe_to_fire { break; }
+                if !safe_to_fire {
+                    break;
+                }
             }
         }
         current_time
@@ -209,10 +213,10 @@ impl QuantumDAG {
 
     /// Dynamically inserts Dynamical Decoupling (DD) sequences on idle qubits.
     pub fn apply_dd_pass(
-        &self, 
-        sequence: &str, 
-        pulse_durations: HashMap<usize, f64>, 
-        num_qubits: usize
+        &self,
+        sequence: &str,
+        pulse_durations: HashMap<usize, f64>,
+        num_qubits: usize,
     ) -> Self {
         let mut optimized_dag = QuantumDAG::new();
         let mut last_qubit_time: HashMap<usize, f64> = HashMap::new();
@@ -225,7 +229,7 @@ impl QuantumDAG {
                     for &qubit in &node.qubits {
                         let gap =
                             schedule.start_time - *last_qubit_time.get(&qubit).unwrap_or(&0.0);
-                        
+
                         let pulse_dur = *pulse_durations.get(&qubit).unwrap_or(&50.0);
                         let (num_pulses, gate_sequence) = match sequence {
                             "XY4" => (4.0, vec!["DD_X", "DD_Y", "DD_X", "DD_Y"]),
@@ -249,25 +253,32 @@ impl QuantumDAG {
                                 }
                             }
 
-                            for pulse_gate in gate_sequence { 
+                            for pulse_gate in gate_sequence {
                                 current_time = self.find_safe_pulse_time(
-                                    qubit, 
-                                    current_time, 
-                                    pulse_dur, 
-                                    &active_pulses, 
-                                    safety_buffer, 
-                                    num_qubits
+                                    qubit,
+                                    current_time,
+                                    pulse_dur,
+                                    &active_pulses,
+                                    safety_buffer,
+                                    num_qubits,
                                 );
 
                                 if current_time + pulse_dur > gap_end_time {
-                                    break; 
+                                    break;
                                 }
 
-                                optimized_dag.add_gate(pulse_gate.to_string(), vec![qubit], pulse_dur);
-                                
-                                active_pulses.entry(qubit).or_insert_with(Vec::new).push((current_time, current_time + pulse_dur));
-                                
-                                current_time += pulse_dur + safety_buffer; 
+                                optimized_dag.add_gate(
+                                    pulse_gate.to_string(),
+                                    vec![qubit],
+                                    pulse_dur,
+                                );
+
+                                active_pulses
+                                    .entry(qubit)
+                                    .or_insert_with(Vec::new)
+                                    .push((current_time, current_time + pulse_dur));
+
+                                current_time += pulse_dur + safety_buffer;
                             }
                         }
                         last_qubit_time.insert(qubit, schedule.start_time);
@@ -310,5 +321,12 @@ impl QuantumDAG {
     /// O(1) check if two physical qubits are connected on the chip
     pub fn are_neighbors(&self, q1: usize, q2: usize) -> bool {
         self.coupling_map.contains(&(q1, q2))
+    }
+
+    /// Reads an IR constructed by a framework adapter and builds the DAG.
+    pub fn build_from_ir(&mut self, instructions: Vec<IRInstruction>) {
+        for (name, qubits, duration_ns) in instructions {
+            self.add_gate(name, qubits, duration_ns);
+        }
     }
 }

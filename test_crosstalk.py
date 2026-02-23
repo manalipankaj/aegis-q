@@ -1,6 +1,7 @@
 from qiskit import QuantumCircuit
 from qiskit.providers.fake_provider import GenericBackendV2
 from qiskit.visualization import timeline_drawer
+from aegis_q.adapters.qiskit_adapter import QiskitAdapter
 import aegis_q
 
 def main():
@@ -22,7 +23,11 @@ def main():
     qc.cx(1, 2)
     
     # 3. Run the new Staggered DD pass
-    optimized_qc = aegis_q.optimize_circuit(qc, backend=backend, sequence="XY4")
+    # Wrap the circuit and backend in our new SOLID interface
+    adapter = QiskitAdapter(qc, backend)
+
+    # Pass the adapter to the universal optimizer
+    optimized_qc = aegis_q.optimize_circuit(adapter, sequence="XY4")
     
     print("\n[Optimized Circuit Architecture]")
     print(optimized_qc.draw())

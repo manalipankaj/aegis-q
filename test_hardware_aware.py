@@ -20,7 +20,8 @@ def main():
     print(qc.draw())
     
     # 3. Run the Hardware-Aware Optimizer and request the XY4 sequence
-    optimized_qc = aegis_q.optimize_circuit(qc, backend=backend, sequence="XY4")
+    adapter = aegis_q.QiskitAdapter(qc, backend)
+    optimized_qc = aegis_q.optimize_circuit(adapter, sequence="XY4")
     
     print("\n[Optimized Circuit with Hardware-Calibrated XY4 Sequence]")
     print(optimized_qc.draw())

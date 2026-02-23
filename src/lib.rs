@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use pyo3::create_exception;
 use pyo3::prelude::*;
+use std::collections::HashMap;
 
 pub mod graph;
 
@@ -43,6 +43,11 @@ impl PyQuantumDAG {
         self.inner.add_gate(name, qubits, duration_ns)
     }
 
+    /// Reads an IR constructed by a framework adapter and builds the DAG.
+    pub fn build_from_ir(&mut self, instructions: Vec<(String, Vec<usize>, f64)>) {
+        self.inner.build_from_ir(instructions);
+    }
+
     /// Computes the schedule (start and end times) for all nodes.
     pub fn build_schedule(&mut self) {
         self.inner.build_schedule();
@@ -63,10 +68,15 @@ impl PyQuantumDAG {
 
     /// Dynamically inserts Dynamical Decoupling (DD) sequences on idle qubits.
     #[pyo3(signature = (sequence="XY", pulse_durations=None, num_qubits=0))]
-    pub fn apply_dd_pass(&self, sequence: &str, pulse_durations: Option<HashMap<usize, f64>>, num_qubits: usize) -> Self {
+    pub fn apply_dd_pass(
+        &self,
+        sequence: &str,
+        pulse_durations: Option<HashMap<usize, f64>>,
+        num_qubits: usize,
+    ) -> Self {
         // Safely unwrap the Option from Python. If None, create an empty HashMap.
         let durations = pulse_durations.unwrap_or_default();
-        
+
         Self {
             // Now pass the guaranteed HashMap and the num_qubits to the inner core
             inner: self.inner.apply_dd_pass(sequence, durations, num_qubits),
