@@ -1,24 +1,32 @@
 from qiskit import QuantumCircuit
+from qiskit.providers import Backend
+from typing import Optional
 
 # 1. Import the high-performance Rust core
 from ._aegis_q import QuantumDAG, AegisQError
 
-# 2. Define the Hardware constraints
-GATE_DURATIONS = {"h": 50.0, "x": 50.0, "y": 50.0, "cx": 300.0, "delay": 0.0}
-
-# 3. The Integration Logic
-def qiskit_to_aegis(qc: QuantumCircuit) -> QuantumDAG:
+def qiskit_to_aegis(qc: QuantumCircuit, backend: Optional[Backend] = None) -> QuantumDAG:
     dag = QuantumDAG()
     for instruction in qc.data:
         gate_name = instruction.operation.name
-        qubits = [qc.find_bit(q).index for q in instruction.qubits]
+        qubits = tuple(qc.find_bit(q).index for q in instruction.qubits)
         
+        duration = 50.0 # Default fallback in nanoseconds
+        
+        # Hardware-Aware Duration Extraction
+        if backend:
+            try:
+                duration_sec = backend.target[gate_name][qubits].duration
+                if duration_sec is not None:
+                    duration = duration_sec * 1e9  # Convert to ns
+            except (KeyError, AttributeError):
+                pass # Fallback to default if gate isn't calibrated
+                
         if gate_name == "delay":
+             # Handle explicit Qiskit delays
             duration = instruction.operation.duration if instruction.operation.duration else 50.0
-        else:
-            duration = GATE_DURATIONS.get(gate_name, 50.0)
             
-        dag.add_gate(gate_name, qubits, float(duration))
+        dag.add_gate(gate_name, list(qubits), float(duration))
     return dag
 
 def aegis_to_qiskit(dag: QuantumDAG, num_qubits: int) -> QuantumCircuit:
@@ -37,11 +45,23 @@ def aegis_to_qiskit(dag: QuantumDAG, num_qubits: int) -> QuantumCircuit:
             
     return qc
 
-def optimize_circuit(qc: QuantumCircuit) -> QuantumCircuit:
-    """The main entry point for AegisQ."""
-    dag = qiskit_to_aegis(qc)
+def optimize_circuit(qc: QuantumCircuit, backend: Optional[Backend] = None, sequence: str = "XY") -> QuantumCircuit:
+    """The main entry point for AegisQ v0.2.0."""
+    dag = qiskit_to_aegis(qc, backend)
     dag.build_schedule()
-    optimized_dag = dag.apply_dd_pass()
+    
+    # Map the exact pulse durations for every single qubit
+    pulse_durations = {}
+    if backend:
+        for q in range(qc.num_qubits):
+            try:
+                duration_sec = backend.target["x"][(q,)].duration
+                if duration_sec is not None:
+                    pulse_durations[q] = duration_sec * 1e9
+            except (KeyError, AttributeError):
+                pulse_durations[q] = 50.0  # Fallback
+
+    optimized_dag = dag.apply_dd_pass(sequence=sequence, pulse_durations=pulse_durations)
     return aegis_to_qiskit(optimized_dag, qc.num_qubits)
 
 # Define what gets exported when someone runs `from aegis_q import *`

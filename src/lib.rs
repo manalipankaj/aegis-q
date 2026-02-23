@@ -57,9 +57,12 @@ impl PyQuantumDAG {
     }
 
     /// Dynamically inserts Dynamical Decoupling (DD) sequences on idle qubits.
-    pub fn apply_dd_pass(&self) -> Self {
+    #[pyo3(signature = (sequence="XY", pulse_durations=None))]
+    pub fn apply_dd_pass(&self, sequence: &str, pulse_durations: Option<std::collections::HashMap<usize, f64>>) -> Self {
+        let default_durations = std::collections::HashMap::new();
+        let durations = pulse_durations.as_ref().unwrap_or(&default_durations);
         PyQuantumDAG {
-            inner: self.inner.apply_dd_pass(),
+            inner: self.inner.apply_dd_pass(sequence, durations),
         }
     }
 

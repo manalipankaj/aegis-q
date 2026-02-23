@@ -169,7 +169,7 @@ impl QuantumDAG {
     }
 
     /// Dynamically inserts Dynamical Decoupling (DD) sequences on idle qubits.
-    pub fn apply_dd_pass(&self) -> Self {
+    pub fn apply_dd_pass(&self, sequence: &str, pulse_durations: &HashMap<usize, f64>) -> Self {
         let mut optimized_dag = QuantumDAG::new();
         let mut last_qubit_time: HashMap<usize, f64> = HashMap::new();
 
@@ -179,9 +179,18 @@ impl QuantumDAG {
                     for &qubit in &node.qubits {
                         let gap =
                             schedule.start_time - *last_qubit_time.get(&qubit).unwrap_or(&0.0);
-                        if gap >= 100.0 {
-                            optimized_dag.add_gate("DD_X".to_string(), vec![qubit], 50.0);
-                            optimized_dag.add_gate("DD_Y".to_string(), vec![qubit], 50.0);
+                        
+                        let pulse_dur = *pulse_durations.get(&qubit).unwrap_or(&50.0);
+                        let (num_pulses, gate_sequence) = match sequence {
+                            "XY4" => (4.0, vec!["DD_X", "DD_Y", "DD_X", "DD_Y"]),
+                            _ => (2.0, vec!["DD_X", "DD_Y"]), // Default to standard XY
+                        };
+                        let threshold = num_pulses * pulse_dur * 1.5;
+
+                        if gap >= threshold {
+                            for gate_name in gate_sequence {
+                                optimized_dag.add_gate(gate_name.to_string(), vec![qubit], pulse_dur);
+                            }
                         }
                         last_qubit_time.insert(qubit, schedule.start_time);
                     }
