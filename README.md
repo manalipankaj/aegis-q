@@ -37,9 +37,9 @@ backend = GenericBackendV2(num_qubits=3)
 optimized_qc = aegis_q.optimize_circuit(qc, backend=backend, sequence="XY4")
 
 print(optimized_qc.draw())
-
+```
 ## 📦 Installation
 AegisQ provides pre-compiled binaries for Linux, macOS, and Windows.
 
-```bash
+bash
 pip install aegis-q
