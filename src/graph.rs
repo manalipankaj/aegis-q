@@ -11,12 +11,24 @@ pub enum OpType {
     Gate { name: String, duration_ns: f64 },
 }
 
+impl std::fmt::Display for OpType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OpType::Input => write!(f, "input"),
+            OpType::Output => write!(f, "output"),
+            OpType::Gate { name, .. } => write!(f, "{}", name),
+        }
+    }
+}
+
 /// A node within the Quantum DAG.
 #[derive(Debug, Clone)]
 pub struct DagNode {
     pub id: usize,
     pub op: OpType,
     pub qubits: Vec<usize>,
+    pub duration_ns: f64,
+    pub params: HashMap<String, f64>,
 }
 
 /// Represents the scheduled start and end time of a node.
@@ -98,31 +110,23 @@ impl QuantumDAG {
     }
 
     /// Adds a gate to the DAG and updates edges using the qubit frontier.
-    pub fn add_gate(&mut self, name: String, qubits: Vec<usize>, duration_ns: f64) -> usize {
-        let node_id = self.node_counter;
-        self.node_counter += 1;
-
+    pub fn add_gate(&mut self, name: String, qubits: Vec<usize>, duration_ns: f64, params: HashMap<String, f64>) -> usize {
+        // Use node_counter to ensure unique keys, even if we drop gates later
+        let node_id = self.node_counter; 
         let op = OpType::Gate { name, duration_ns };
+        
         let node = DagNode {
             id: node_id,
             op,
             qubits: qubits.clone(),
+            duration_ns,
+            params, 
         };
-
-        self.nodes.insert(node_id, node);
-
-        for &qubit in &qubits {
-            if let Some(&previous_node_id) = self.qubit_frontier.get(&qubit) {
-                // Add an edge from previous_node_id to node_id
-                self.edges
-                    .entry(previous_node_id)
-                    .or_default()
-                    .push((node_id, qubit));
-            }
-            // Update frontier for this qubit
-            self.qubit_frontier.insert(qubit, node_id);
-        }
-
+        
+        // 🚨 CRITICAL: If this line is missing, the gates vanish into the void!
+        self.nodes.insert(node_id, node); 
+        
+        self.node_counter += 1;
         node_id
     }
 
@@ -218,17 +222,24 @@ impl QuantumDAG {
         pulse_durations: HashMap<usize, f64>,
         num_qubits: usize,
     ) -> Self {
+        println!("🦀 [Rust] Starting apply_dd_pass with {} nodes...", self.nodes.len());
         let mut optimized_dag = QuantumDAG::new();
         let mut last_qubit_time: HashMap<usize, f64> = HashMap::new();
         // Maps a qubit to a list of occupied time intervals: (start_time, end_time)
         let mut active_pulses: HashMap<usize, Vec<(f64, f64)>> = HashMap::new();
 
-        for node_id in 0..self.node_counter {
+        for node_id in 0..self.nodes.len() {
+            let _node = &self.nodes[&node_id];
             if let Some(node) = self.nodes.get(&node_id) {
                 if let Some(schedule) = self.node_schedules.get(&node_id) {
                     for &qubit in &node.qubits {
                         let gap =
                             schedule.start_time - *last_qubit_time.get(&qubit).unwrap_or(&0.0);
+
+                        let mut drag_params: HashMap<String, f64> = HashMap::new();
+                        drag_params.insert("amp".to_string(), 0.15);     // Safe amplitude to prevent heating
+                        drag_params.insert("sigma".to_string(), 40.0);   // Bell curve width
+                        drag_params.insert("beta".to_string(), 0.5);     // The leakage-cancellation derivative
 
                         let pulse_dur = *pulse_durations.get(&qubit).unwrap_or(&50.0);
                         let (num_pulses, gate_sequence) = match sequence {
@@ -253,7 +264,7 @@ impl QuantumDAG {
                                 }
                             }
 
-                            for pulse_gate in gate_sequence {
+                            for _pulse_gate in gate_sequence {
                                 current_time = self.find_safe_pulse_time(
                                     qubit,
                                     current_time,
@@ -268,9 +279,10 @@ impl QuantumDAG {
                                 }
 
                                 optimized_dag.add_gate(
-                                    pulse_gate.to_string(),
+                                    _pulse_gate.to_string(),
                                     vec![qubit],
                                     pulse_dur,
+                                    drag_params.clone(),
                                 );
 
                                 active_pulses
@@ -284,9 +296,13 @@ impl QuantumDAG {
                         last_qubit_time.insert(qubit, schedule.start_time);
                     }
 
-                    if let OpType::Gate { name, duration_ns } = &node.op {
-                        optimized_dag.add_gate(name.clone(), node.qubits.clone(), *duration_ns);
-                    }
+                    // Restore the Copy Operation: Explicitly copy the original gate into the new DAG
+                    optimized_dag.add_gate(
+                        node.op.to_string(),
+                        node.qubits.clone(),
+                        node.duration_ns,
+                        node.params.clone(),
+                    );
 
                     for &qubit in &node.qubits {
                         last_qubit_time.insert(qubit, schedule.end_time);
@@ -294,16 +310,17 @@ impl QuantumDAG {
                 }
             }
         }
+        println!("🦀 [Rust] apply_dd_pass finished! Optimized DAG contains {} nodes.", optimized_dag.nodes.len());
         optimized_dag
     }
 
     /// Exports all operations in topological order for external adapters a list of tuples (name, qubits, duration).
-    pub fn get_all_nodes(&self) -> Vec<(String, Vec<usize>, f64)> {
+    pub fn get_all_nodes(&self) -> Vec<(String, Vec<usize>, f64, HashMap<String, f64>)> {
         let mut result = Vec::new();
         for node_id in 0..self.node_counter {
             if let Some(node) = self.nodes.get(&node_id) {
                 if let OpType::Gate { name, duration_ns } = &node.op {
-                    result.push((name.clone(), node.qubits.clone(), *duration_ns));
+                    result.push((name.clone(), node.qubits.clone(), *duration_ns, node.params.clone()));
                 }
             }
         }
@@ -324,9 +341,11 @@ impl QuantumDAG {
     }
 
     /// Reads an IR constructed by a framework adapter and builds the DAG.
-    pub fn build_from_ir(&mut self, instructions: Vec<IRInstruction>) {
-        for (name, qubits, duration_ns) in instructions {
-            self.add_gate(name, qubits, duration_ns);
+    pub fn build_from_ir(&mut self, instructions: Vec<(String, Vec<usize>, f64, HashMap<String, f64>)>) {
+        println!("🦀 [Rust] Received {} instructions from Python.", instructions.len());
+        for (name, qubits, duration, params) in instructions {
+            self.add_gate(name, qubits, duration, params);
         }
+        println!("🦀 [Rust] Graph memory now contains {} nodes.", self.nodes.len());
     }
 }

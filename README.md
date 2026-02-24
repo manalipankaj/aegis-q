@@ -15,29 +15,34 @@ Built with a pure **Rust** core and exposed via a zero-cost **PyO3** abstraction
 * **Hardware-Aware Routing (NEW in v0.2):** Reads live calibration data (T1/T2 times, gate durations) directly from IBM Qiskit `Backend` targets to calculate exact decoherence vulnerability windows.
 * **Advanced DD Injection (NEW in v0.2):** Supports industry-standard dynamical decoupling sequences like **XY4** ($X-Y-X-Y$) to protect against colored thermal noise.
 
-## 🚀 Quickstart (Hardware-Aware Qiskit Integration)
-AegisQ acts as invisible middleware. Pass your standard Qiskit circuit and your target IBM backend through the optimizer, and AegisQ will dynamically weave protective pulses into the execution schedule.
+### 💻 Quick Start
+
+With the new Universal Architecture, you simply wrap your quantum circuit in a framework-specific adapter before handing it to the Rust physics engine.
 
 ```python
 from qiskit import QuantumCircuit
 from qiskit.providers.fake_provider import GenericBackendV2
+from aegis_q.adapters.qiskit_adapter import QiskitAdapter
 import aegis_q
 
-# 1. Write your standard circuit
+# 1. Define your hardware and circuit
+backend = GenericBackendV2(num_qubits=3)
 qc = QuantumCircuit(3)
-qc.h(0)
-qc.x(1)
-qc.delay(1000, 2)  # Simulating a long operation on Q2
+qc.cx(0, 1)
+qc.delay(1500, 2) # Qubit 2 is idle and vulnerable to crosstalk
 qc.cx(0, 2)
 
-# 2. Load your target IBM Quantum hardware (or a mock simulator)
-backend = GenericBackendV2(num_qubits=3)
+# 2. Wrap it in the AegisQ Adapter
+adapter = QiskitAdapter(qc, backend)
 
-# 3. Let AegisQ analyze the hardware schedule and inject an XY4 sequence
-optimized_qc = aegis_q.optimize_circuit(qc, backend=backend, sequence="XY4")
+# 3. Run the Rust Compiler Engine
+# AegisQ analyzes the topology and injects physical DRAG pulses 
+# (amp, beta) to protect the idle qubit.
+optimized_qc = aegis_q.optimize_circuit(adapter, sequence="XY4")
 
 print(optimized_qc.draw())
-```
+``` 
+
 ## 📦 Installation
 AegisQ provides pre-compiled binaries for Linux, macOS, and Windows.
 

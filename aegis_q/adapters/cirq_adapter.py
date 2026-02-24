@@ -34,10 +34,9 @@ class CirqAdapter(CompilerAdapter):
     def from_optimized_ir(self, optimized_nodes: List[Any], num_qubits: int) -> cirq.Circuit:
         new_circuit = cirq.Circuit()
         
-        for node in optimized_nodes:
-            # Assuming your Rust core returns an object with .op, .qubits, .duration
-            gate_name = node.op.lower()
-            target_qubits = [self.inv_q_map[q_idx] for q_idx in node.qubits]
+        for gate_name, qubits, duration_ns, params in optimized_nodes:
+            gate_name = str(gate_name).lower()
+            target_qubits = [self.inv_q_map[q_idx] for q_idx in qubits]
             
             # Reconstruct the native Cirq operations
             if gate_name in ["x", "dd_x"]:

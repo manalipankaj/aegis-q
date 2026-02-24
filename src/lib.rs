@@ -39,12 +39,19 @@ impl PyQuantumDAG {
     }
 
     /// Adds a gate node to the graph and connects dependent edges.
-    pub fn add_gate(&mut self, name: String, qubits: Vec<usize>, duration_ns: f64) -> usize {
-        self.inner.add_gate(name, qubits, duration_ns)
+    #[pyo3(signature = (name, qubits, duration_ns, params=None))]
+    pub fn add_gate(
+        &mut self, 
+        name: String, 
+        qubits: Vec<usize>, 
+        duration_ns: f64, 
+        params: Option<HashMap<String, f64>>
+    ) -> usize {
+        self.inner.add_gate(name, qubits, duration_ns, params.unwrap_or_default())
     }
 
     /// Reads an IR constructed by a framework adapter and builds the DAG.
-    pub fn build_from_ir(&mut self, instructions: Vec<(String, Vec<usize>, f64)>) {
+    pub fn build_from_ir(&mut self, instructions: Vec<(String, Vec<usize>, f64, HashMap<String, f64>)>) {
         self.inner.build_from_ir(instructions);
     }
 
@@ -84,7 +91,7 @@ impl PyQuantumDAG {
     }
 
     /// Exports all operations in topological order a list of tuples (name, qubits, duration).
-    pub fn get_all_nodes(&self) -> Vec<(String, Vec<usize>, f64)> {
+    pub fn get_all_nodes(&self) -> Vec<(String, Vec<usize>, f64, HashMap<String, f64>)> {
         self.inner.get_all_nodes()
     }
 }

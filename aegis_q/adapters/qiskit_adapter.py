@@ -11,14 +11,15 @@ class QiskitAdapter(CompilerAdapter):
         self._qc = qc
         self._backend = backend
         
-    def to_ir(self) -> List[Tuple[str, List[int], float]]:
+    def to_ir(self) -> list[tuple[str, list[int], float, dict[str, float]]]:
         """Extracts nodes (gate_name, qubits, duration) from Qiskit circuit."""
-        nodes = []
+        ir_payload = []
         for instruction in self._qc.data:
             gate_name = instruction.operation.name
             qubits = tuple(self._qc.find_bit(q).index for q in instruction.qubits)
             
             duration = 50.0 
+            params = {}
             
             if self._backend:
                 try:
@@ -31,25 +32,45 @@ class QiskitAdapter(CompilerAdapter):
             if gate_name == "delay":
                 duration = instruction.operation.duration if instruction.operation.duration else 50.0
                 
-            nodes.append((gate_name, list(qubits), float(duration)))
+            ir_payload.append((gate_name, list(qubits), float(duration), params))
             
-        return nodes
+        return ir_payload
 
-    def from_optimized_ir(self, optimized_nodes: List[Tuple[str, List[int], float]], num_qubits: int) -> QuantumCircuit:
-        """Reconstructs the optimized QuantumCircuit."""
-        qc = QuantumCircuit(num_qubits)
+    def from_optimized_ir(self, optimized_nodes, num_qubits: int):
+        from qiskit import QuantumCircuit
+        from qiskit.circuit import Gate
         
-        for gate_name, qubits, duration in optimized_nodes:
-            if gate_name in ["h", "x", "y"]:
-                getattr(qc, gate_name)(qubits[0])
-            elif gate_name == "cx":
-                qc.cx(qubits[0], qubits[1])
-            elif gate_name.startswith("DD_"):
-                getattr(qc, gate_name.split("_")[1].lower())(qubits[0])
-            elif gate_name in ["delay", "LONG"]:
-                qc.delay(int(duration), qubits[0])
+        new_circuit = QuantumCircuit(num_qubits)
+        
+        for node in optimized_nodes:
+            # UNPACK THE TUPLE directly! PyO3 auto-converted it for us.
+            gate_name_raw, qubits, duration, params = node
+            
+            # Clean up the name just in case the Rust Enum formatting leaked through
+            gate_name = str(gate_name_raw).lower().split('.')[-1]
+            
+            # DETECT THE PHYSICS: If beta is present, it's a physical microwave pulse!
+            if params and "beta" in params:
+                amp = params.get("amp", 0.0)
+                beta = params.get("beta", 0.0)
                 
-        return qc
+                # Tag it with both the logical operation AND the physical parameters
+                pulse_name = f"DRAG_{gate_name.upper()}(β={beta})"
+                custom_drag = Gate(name=pulse_name, num_qubits=1, params=[])
+                new_circuit.append(custom_drag, qubits)
+                
+            elif "cx" in gate_name:
+                new_circuit.cx(qubits[0], qubits[1])
+            elif "h" in gate_name:
+                new_circuit.h(qubits[0])
+            elif "delay" in gate_name:
+                # Use the duration we just unpacked from the tuple!
+                new_circuit.delay(int(duration), qubits[0], unit='dt')
+            else:
+                generic_gate = Gate(name=gate_name, num_qubits=len(qubits), params=[])
+                new_circuit.append(generic_gate, qubits)
+                
+        return new_circuit
 
     def get_coupling_map(self) -> List[Tuple[int, int]]:
         """Returns the hardware topology."""
