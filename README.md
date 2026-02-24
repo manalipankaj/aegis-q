@@ -1,19 +1,22 @@
-# AegisQ 🛡️
-**High-Performance Quantum Compiler Middleware for Dynamical Decoupling**
+## 🚀 AegisQ v0.3.0: Universal Pulse-Level Compiler
 
-[![PyPI version](https://badge.fury.io/py/aegis-q.svg)](https://badge.fury.io/py/aegis-q)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust Core](https://img.shields.io/badge/Powered%20by-Rust-orange.svg)](https://www.rust-lang.org/)
+AegisQ is a high-performance, memory-safe quantum compiler backend written in Rust, wrapped in a flexible Python API. It mitigates $ZZ$ crosstalk and physical qubit decoherence by automatically calculating and injecting hardware-aware microwave pulse parameters (Dynamical Decoupling) into idle computational windows.
 
-AegisQ is a high-speed compiler pass designed to bridge the gap between abstract quantum circuits and noisy physical hardware. By analyzing circuit schedules and automatically injecting Dynamical Decoupling (DD) pulse sequences into idle qubit windows, AegisQ dramatically reduces decoherence and improves algorithmic fidelity.
+### 🏗️ Architecture
 
-Built with a pure **Rust** core and exposed via a zero-cost **PyO3** abstraction layer, AegisQ seamlessly integrates with standard Python frameworks like Qiskit without the typical FFI translation bottlenecks.
 
-## ⚡ Features
-* **Zero-Cost Abstraction:** Write in Python, compile in Rust. Bypasses the Python GIL for massive DAG traversal.
-* **ASAP Scheduling:** Automatically calculates the critical path of your circuit to find precise nanosecond idle windows.
-* **Hardware-Aware Routing (NEW in v0.2):** Reads live calibration data (T1/T2 times, gate durations) directly from IBM Qiskit `Backend` targets to calculate exact decoherence vulnerability windows.
-* **Advanced DD Injection (NEW in v0.2):** Supports industry-standard dynamical decoupling sequences like **XY4** ($X-Y-X-Y$) to protect against colored thermal noise.
+
+AegisQ uses a strict **Adapter Pattern** to fully decouple the physics engine from the quantum software framework. 
+
+1. **The Python Frontend (Adapters):** Accepts native quantum circuits (e.g., `qiskit.QuantumCircuit`) and compiles them down to a Universal Intermediate Representation (IR).
+2. **The PyO3 Boundary:** Safely serializes the IR and hardware topology across the language boundary.
+3. **The Rust Backend (Physics Engine):** Constructs a directed acyclic graph (DAG), analyzes spatial/temporal crosstalk, calculates precise physical waveform parameters (e.g., DRAG pulse Amplitude and Beta), and injects them to protect vulnerable qubits.
+
+### ✨ Key Features
+* **Multi-Framework Support:** Universal IR supports rapid adapter creation for Qiskit, Cirq, and others.
+* **Hardware-Aware Scheduling:** Prevents decoherence by utilizing $XY4$, $CPMG$, and custom dynamical decoupling sequences.
+* **Leakage Prevention:** Emits precise physical DRAG envelope parameters to suppress leakage into the $|2\rangle$ state.
+* **Memory Safe:** Core optimization passes are written in strict, dependency-inverted Rust.
 
 ### 💻 Quick Start
 
